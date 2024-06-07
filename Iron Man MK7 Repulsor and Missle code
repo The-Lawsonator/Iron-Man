@@ -1,0 +1,148 @@
+// IronMan Repulsor and Missile Cover/Missile Servo Control v1.0
+
+#include <Adafruit_NeoPixel.h>
+#include <SoftwareSerial.h>
+#include <DFRobotDFPlayerMini.h>
+#include <Servo.h>
+
+Servo cover_servo;    // create servo object to control the missile cover servo
+Servo missile_servo;  // create servo object for missile mechanics
+
+const int misslePin = 3;    // the pin that the pushbutton is attached to
+const int repulsorPin = 2;  // the pin that the pushbutton is attached to
+int currentMissleButtonState = 0;
+int currentRepulsorButtonState = 0;  // current state of the button
+int lastMissileButtonState = 0;
+int lastRepulsorButtonState = 0;  // previous state of the repulsor button
+
+boolean isOpen = true;
+
+#define S_IDLE 1
+#define S_SERVOUP 9
+#define S_SERVODOWN 0
+#define S_SERVOOFF 10
+#define S_SERVOON 11
+#define RX 4          // Connect to TX of DFPlayer Mini
+#define TX 5          // Connect to RX of DFPlayer Mini
+#define PIN 6         // Define the pin where your Neopixel Jewel is connected
+#define NUM_PIXELS 7  // Number of pixels in your Neopixel Jewel
+
+// FSM init vars
+static int state = S_IDLE;  // initial state is the "idle" state.
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUM_PIXELS, PIN, NEO_GRB + NEO_KHZ800);
+SoftwareSerial mySoftwareSerial(RX, TX);  // RX, TX
+DFRobotDFPlayerMini myDFPlayer;
+
+void setup() {
+  Serial.begin(9600);
+  cover_servo.attach(8);    // attaches the servo on pin 10 to the servo object
+  missile_servo.attach(9);  // attaches the servo on pin 9 to the servo object
+
+  pinMode(misslePin, INPUT_PULLUP);    // initialize the button pin as an input with pull-up resistor
+  pinMode(repulsorPin, INPUT_PULLUP);  // Set the button pin as input with internal pull-up resistor
+  mySoftwareSerial.begin(9600);
+  Serial.begin(115200);
+
+  if (!myDFPlayer.begin(mySoftwareSerial)) {  // Use softwareSerial to communicate with mp3.
+    Serial.println(F("Unable to begin:"));
+    Serial.println(F("1.Please recheck the connection!"));
+    Serial.println(F("2.Please insert the SD card!"));
+    while (true)
+      ;
+  }
+  myDFPlayer.volume(30);  // Set volume value (0~30).
+
+  strip.begin();
+  strip.show();      // Initialize all pixels to 'off'
+  setLowIcyWhite();  // Set the default low icy white color
+}
+
+void loop() {
+
+  currentMissleButtonState = digitalRead(misslePin);  // Read the current state of the button
+  currentRepulsorButtonState = digitalRead(repulsorPin);
+  
+  //Missle cover and extension code
+  // Check if button state has changed from the last time it was read
+  if (currentMissleButtonState != lastMissileButtonState) {
+    // Debounce delay to avoid reading noise as a button press
+    delay(50);
+    // If the button is still pressed after the delay, proceed
+    if (digitalRead(misslePin) == currentMissleButtonState) {
+      // If the button is pressed and the cover is open
+      if (currentMissleButtonState == LOW && isOpen) {
+        cover_servo.attach(8);    // Reattach the servo on pin 10
+        missile_servo.attach(9);  // Reattach the servo on pin 9
+        Serial.println("CLOSING MISSILE COVER");
+        cover_servo.write(180);    // Adjust as necessary for the closed position
+        missile_servo.write(180);  // Adjust as necessary for the missile servo closed position
+        delay(500);                // Wait for servos to reach position
+        cover_servo.detach();      // Turn off the cover servo
+        missile_servo.detach();    // Turn off the missile servo
+        isOpen = false;            // Update the state to closed
+      }
+      // If the button is pressed and the cover is closed
+      else if (currentMissleButtonState == LOW && !isOpen) {
+        cover_servo.attach(8);    // Reattach the servo on pin 10
+        missile_servo.attach(9);  // Reattach the servo on pin 9
+        Serial.println("OPENING MISSILE COVER");
+        cover_servo.write(40);    // Adjust as necessary for the open position
+        missile_servo.write(40);  // Adjust as necessary for the missile servo open position
+        delay(500);               // Wait for servos to reach position
+        cover_servo.detach();     // Turn off the cover servo
+        missile_servo.detach();   // Turn off the missile servo
+        isOpen = true;            // Update the state to open
+      }
+    }
+  }
+
+    //Repulsor code with sound effect
+  if (digitalRead(repulsorPin) == currentRepulsorButtonState) {
+    if (currentRepulsorButtonState == LOW && lastRepulsorButtonState == HIGH) {  // Button was just pressed
+      myDFPlayer.play(1);                                                        // Play the repulsor sound
+      chargeUp();
+
+      lastRepulsorButtonState = LOW;                                                    // Update the last button state
+    } else if (currentRepulsorButtonState == HIGH && lastRepulsorButtonState == LOW) {  // Button was just released
+      myDFPlayer.play(2);                                                               // Play the repulsor sound
+      coolDown();
+      // Cool down to low icy white
+      lastRepulsorButtonState = HIGH;  // Update the last button state
+    }
+  }
+
+  lastMissileButtonState = currentMissleButtonState;
+  lastRepulsorButtonState = currentRepulsorButtonState;  // Save the current button state as the last state for the next loop iteration
+}
+
+void setLowIcyWhite() {
+  // Set all pixels to off
+  for (int pixel = 0; pixel < NUM_PIXELS; pixel++) {
+    strip.setPixelColor(pixel, strip.Color(0, 0, 0));  // Turns off NeoPixels - can change this code to set the default lighting of the repulsors.
+  }
+  strip.show();
+}
+
+void chargeUp() {
+  // Charge up to bright icy white (40% slower)
+  for (int i = 0; i < 255; i += 3) {  // Increase by 3 for slower charging
+    for (int pixel = 0; pixel < NUM_PIXELS; pixel++) {
+      strip.setPixelColor(pixel, strip.Color(i, i, i));  // Bright icy white
+    }
+    strip.show();
+    delay(10);  // Slow down the charging effect
+  }
+}
+
+void coolDown() {
+  // Cool down to low brightness ice white (50% faster)
+  for (int i = 255; i >= 30; i -= 4) {  // Decrease for faster cooling effect
+    for (int pixel = 0; pixel < NUM_PIXELS; pixel++) {
+      strip.setPixelColor(pixel, strip.Color(i, i, i));  // Transition to off
+    }
+    strip.show();
+    delay(20);  // Faster cooling effect
+  }
+  setLowIcyWhite();  // Ensure it ends with pixels turned off
+}
+
